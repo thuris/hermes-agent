@@ -65,6 +65,22 @@ class TestSaveModelChoiceAlwaysDict:
         assert model["default"] == "new-model"
         assert model["provider"] == "openrouter"  # preserved
 
+    def test_save_model_choice_clears_legacy_env_overrides(self, config_home):
+        from hermes_cli.auth import _save_model_choice
+
+        (config_home / ".env").write_text(
+            "LLM_MODEL=stale-model\nHERMES_MODEL=stale-session-model\n",
+            encoding="utf-8",
+        )
+
+        _save_model_choice("new-model")
+
+        env_text = (config_home / ".env").read_text(encoding="utf-8")
+        assert "LLM_MODEL=" in env_text
+        assert "HERMES_MODEL=" in env_text
+        assert "LLM_MODEL=stale-model" not in env_text
+        assert "HERMES_MODEL=stale-session-model" not in env_text
+
 
 class TestProviderPersistsAfterModelSave:
     def test_api_key_provider_saved_when_model_was_string(self, config_home, monkeypatch):

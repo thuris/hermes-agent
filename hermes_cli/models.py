@@ -8,10 +8,14 @@ Add, remove, or reorder entries here — both `hermes setup` and
 from __future__ import annotations
 
 import json
+import os
 import urllib.request
 import urllib.error
 from difflib import get_close_matches
+from pathlib import Path
 from typing import Any, Optional
+
+import yaml
 
 # (model_id, display description shown in menus)
 OPENROUTER_MODELS: list[tuple[str, str]] = [
@@ -151,6 +155,20 @@ def list_available_providers() -> list[dict[str, str]]:
     return result
 
 
+def _load_model_aliases() -> dict[str, str]:
+    """Load user-defined model aliases from ``~/.hermes/config.yaml``."""
+    config_path = Path(os.getenv("HERMES_HOME", Path.home() / ".hermes")) / "config.yaml"
+    try:
+        if not config_path.exists():
+            return {}
+        with open(config_path, encoding="utf-8") as f:
+            cfg = yaml.safe_load(f) or {}
+        aliases = cfg.get("model", {}).get("aliases", {})
+        return aliases if isinstance(aliases, dict) else {}
+    except Exception:
+        return {}
+
+
 def parse_model_input(raw: str, current_provider: str) -> tuple[str, str]:
     """Parse ``/model`` input into ``(provider, model)``.
 
@@ -169,6 +187,9 @@ def parse_model_input(raw: str, current_provider: str) -> tuple[str, str]:
     provider from the input or *current_provider* if none was specified.
     """
     stripped = raw.strip()
+    alias_target = _load_model_aliases().get(stripped)
+    if isinstance(alias_target, str) and alias_target.strip():
+        stripped = alias_target.strip()
     colon = stripped.find(":")
     if colon > 0:
         provider_part = stripped[:colon].strip().lower()

@@ -67,14 +67,14 @@ _user_env = _hermes_home / ".env"
 _project_env = Path(__file__).parent / '.env'
 if _user_env.exists():
     try:
-        load_dotenv(dotenv_path=_user_env, encoding="utf-8")
+        load_dotenv(dotenv_path=_user_env, encoding="utf-8", override=True)
     except UnicodeDecodeError:
-        load_dotenv(dotenv_path=_user_env, encoding="latin-1")
-elif _project_env.exists():
+        load_dotenv(dotenv_path=_user_env, encoding="latin-1", override=True)
+if _project_env.exists():
     try:
-        load_dotenv(dotenv_path=_project_env, encoding="utf-8")
+        load_dotenv(dotenv_path=_project_env, encoding="utf-8", override=False)
     except UnicodeDecodeError:
-        load_dotenv(dotenv_path=_project_env, encoding="latin-1")
+        load_dotenv(dotenv_path=_project_env, encoding="latin-1", override=False)
 
 # Point mini-swe-agent at ~/.hermes/ so it shares our config
 os.environ.setdefault("MSWEA_GLOBAL_CONFIG_DIR", str(_hermes_home))
@@ -2658,6 +2658,12 @@ class HermesCLI:
         # Lowercase only for dispatch matching; preserve original case for arguments
         cmd_lower = command.lower().strip()
         cmd_original = command.strip()
+
+        # Numeric shorthand for model aliases: /1 -> /model 1
+        cmd_no_slash = cmd_lower[1:] if cmd_lower.startswith("/") else cmd_lower
+        if cmd_no_slash.isdigit() and len(cmd_no_slash) <= 2:
+            cmd_lower = "/model"
+            cmd_original = f"/model {cmd_no_slash}"
         
         if cmd_lower in ("/quit", "/exit", "/q"):
             return False

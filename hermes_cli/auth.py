@@ -1671,12 +1671,12 @@ def _prompt_model_selection(model_ids: List[str], current_model: str = "") -> Op
 
 
 def _save_model_choice(model_id: str) -> None:
-    """Save the selected model to config.yaml (single source of truth).
+    """Save the selected model to config.yaml and clear legacy env overrides.
 
-    The model is stored in config.yaml only — NOT in .env.  This avoids
-    conflicts in multi-agent setups where env vars would stomp each other.
+    Config stays the source of truth. We also blank old env-based overrides so
+    stale process/container environments do not keep forcing an outdated model.
     """
-    from hermes_cli.config import save_config, load_config
+    from hermes_cli.config import save_config, load_config, save_env_value
 
     config = load_config()
     # Always use dict format so provider/base_url can be stored alongside
@@ -1685,6 +1685,8 @@ def _save_model_choice(model_id: str) -> None:
     else:
         config["model"] = {"default": model_id}
     save_config(config)
+    save_env_value("LLM_MODEL", "")
+    save_env_value("HERMES_MODEL", "")
 
 
 def login_command(args) -> None:

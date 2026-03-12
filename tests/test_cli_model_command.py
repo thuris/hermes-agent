@@ -96,6 +96,19 @@ class TestModelCommand:
         assert "Authenticated providers" in output or "Switch model" in output
         assert "provider" in output and "model" in output
 
+    def test_numeric_alias_shorthand_rewrites_to_model_command(self, capsys):
+        cli_obj = self._make_cli()
+
+        with patch("hermes_cli.models.fetch_api_models", return_value=["minimax/minimax-m2.5"]), \
+             patch("hermes_cli.models._load_model_aliases", return_value={"1": "minimax/minimax-m2.5"}), \
+             patch("cli.save_config_value", return_value=True) as save_mock:
+            cli_obj.process_command("/1")
+
+        output = capsys.readouterr().out
+        assert "saved to config" in output
+        assert cli_obj.model == "minimax/minimax-m2.5"
+        save_mock.assert_called_once_with("model.default", "minimax/minimax-m2.5")
+
     # -- provider switching tests -------------------------------------------
 
     def test_provider_colon_model_switches_provider(self, capsys):

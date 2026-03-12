@@ -34,13 +34,15 @@ _hermes_home = Path(os.getenv("HERMES_HOME", Path.home() / ".hermes"))
 # Load environment variables from ~/.hermes/.env first
 from dotenv import load_dotenv
 _env_path = _hermes_home / '.env'
+_project_env_path = Path(__file__).resolve().parent.parent / '.env'
 if _env_path.exists():
     try:
-        load_dotenv(_env_path, encoding="utf-8")
+        load_dotenv(_env_path, encoding="utf-8", override=True)
     except UnicodeDecodeError:
-        load_dotenv(_env_path, encoding="latin-1")
-# Also try project .env as fallback
-load_dotenv()
+        load_dotenv(_env_path, encoding="latin-1", override=True)
+# Also try project .env as fallback only
+if _project_env_path.exists():
+    load_dotenv(_project_env_path, override=False)
 
 # Bridge config.yaml values into the environment so os.getenv() picks them up.
 # config.yaml is authoritative for terminal settings — overrides .env.
@@ -855,6 +857,11 @@ class GatewayRunner:
         
         # Check for commands
         command = event.get_command()
+
+        # Numeric shorthand for model aliases: /1 -> /model 1
+        if command and command.isdigit() and len(command) <= 2:
+            event.text = f"/model {command}"
+            command = "model"
         
         # Emit command:* hook for any recognized slash command
         _known_commands = {"new", "reset", "help", "status", "stop", "model",

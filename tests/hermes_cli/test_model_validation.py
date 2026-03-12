@@ -78,6 +78,19 @@ class TestParseModelInput:
         assert provider == "openrouter"
         assert model == "http://localhost:8080/model"
 
+    def test_user_alias_from_config_is_resolved(self, tmp_path, monkeypatch):
+        hermes_home = tmp_path / "hermes-home"
+        hermes_home.mkdir()
+        (hermes_home / "config.yaml").write_text(
+            "model:\n  aliases:\n    '1': minimax/minimax-m2.5\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+
+        provider, model = parse_model_input("1", "openrouter")
+        assert provider == "openrouter"
+        assert model == "minimax/minimax-m2.5"
+
 
 # -- curated_models_for_provider ---------------------------------------------
 
