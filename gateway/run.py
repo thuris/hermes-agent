@@ -1376,7 +1376,12 @@ class GatewayRunner:
 
         # Check for commands
         command = event.get_command()
-        
+
+        # Shorthand for numeric model aliases: /1 -> /model 1
+        if command and command.isdigit() and len(command) <= 2:
+            event.text = f"/model {command}"
+            command = "model"
+
         # Emit command:* hook for any recognized slash command.
         # GATEWAY_KNOWN_COMMANDS is derived from the central COMMAND_REGISTRY
         # in hermes_cli/commands.py — no hardcoded set to maintain here.
@@ -2376,6 +2381,7 @@ class GatewayRunner:
         # Resolve current model and provider from config
         current = os.getenv("HERMES_MODEL") or "anthropic/claude-opus-4.6"
         current_provider = "openrouter"
+        model_aliases = {}
         try:
             if config_path.exists():
                 with open(config_path, encoding="utf-8") as f:
@@ -2386,8 +2392,13 @@ class GatewayRunner:
                 elif isinstance(model_cfg, dict):
                     current = model_cfg.get("default", current)
                     current_provider = model_cfg.get("provider", current_provider)
+                    model_aliases = model_cfg.get("aliases", {})
         except Exception:
             pass
+
+        # Resolve alias if args matches one
+        if args and args in model_aliases:
+            args = model_aliases[args]
 
         # Resolve "auto" to the actual provider using credential detection
         current_provider = normalize_provider(current_provider)

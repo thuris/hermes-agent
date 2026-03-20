@@ -3354,6 +3354,12 @@ class HermesCLI:
         cmd_lower = command.lower().strip()
         cmd_original = command.strip()
 
+        # Handle numeric shorthand: /1 -> /model 1
+        cmd_no_slash = cmd_lower[1:] if cmd_lower.startswith("/") else cmd_lower
+        if cmd_no_slash.isdigit() and len(cmd_no_slash) <= 2:
+            cmd_lower = "/model"
+            cmd_original = f"/model {cmd_no_slash}"
+
         # Resolve aliases via central registry so adding an alias is a one-line
         # change in hermes_cli/commands.py instead of touching every dispatch site.
         from hermes_cli.commands import resolve_command as _resolve_cmd

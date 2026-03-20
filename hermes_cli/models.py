@@ -335,6 +335,24 @@ def parse_model_input(raw: str, current_provider: str) -> tuple[str, str]:
     provider from the input or *current_provider* if none was specified.
     """
     stripped = raw.strip()
+
+    # Check for user-defined aliases in config
+    try:
+        from pathlib import Path
+        import os
+        import yaml
+        config_path = Path(os.environ.get('HOME', '~')).expanduser() / '.hermes/config.yaml'
+        if config_path.exists():
+            with open(config_path) as f:
+                cfg = yaml.safe_load(f) or {}
+            aliases = cfg.get('model', {}).get('aliases', {})
+            if stripped in aliases:
+                stripped = aliases[stripped]
+                if stripped is None:
+                    stripped = raw.strip()
+    except Exception:
+        pass
+
     colon = stripped.find(":")
     if colon > 0:
         provider_part = stripped[:colon].strip().lower()
