@@ -345,6 +345,21 @@ class HonchoMemoryProvider(MemoryProvider):
             logger.warning("Honcho init failed: %s", e)
             self._manager = None
 
+    def _resolve_runtime_user_peer_name(self, cfg, **kwargs) -> Optional[str]:
+        """Resolve the Honcho user peer for this runtime, honoring explicit peerMap aliases."""
+        user_id = kwargs.get("user_id")
+        if not user_id:
+            return None
+
+        platform = str(kwargs.get("platform") or "").strip().lower()
+        peer_map = getattr(cfg, "peer_map", None) or {}
+        if isinstance(peer_map, dict) and platform:
+            mapped = peer_map.get(f"{platform}:{user_id}")
+            if mapped:
+                return str(mapped)
+
+        return str(user_id)
+
     def _do_session_init(self, cfg, session_id: str, **kwargs) -> None:
         """Shared session initialization logic for both eager and lazy paths."""
         from plugins.memory.honcho.client import get_honcho_client
@@ -355,7 +370,7 @@ class HonchoMemoryProvider(MemoryProvider):
             honcho=client,
             config=cfg,
             context_tokens=cfg.context_tokens,
-            runtime_user_peer_name=kwargs.get("user_id") or None,
+            runtime_user_peer_name=self._resolve_runtime_user_peer_name(cfg, **kwargs),
         )
 
         # ----- B3: resolve_session_name -----

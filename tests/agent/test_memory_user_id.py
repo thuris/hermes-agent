@@ -274,6 +274,49 @@ class TestHonchoUserIdScoping:
         assert mock_cfg.peer_name == "static-user"
         assert mock_manager_cls.call_args.kwargs["runtime_user_peer_name"] == "discord_user_789"
 
+    def test_gateway_user_id_maps_to_canonical_peer_when_peer_map_configured(self):
+        """Configured peerMap should remap platform:user_id to the canonical Honcho peer."""
+        from plugins.memory.honcho import HonchoMemoryProvider
+
+        provider = HonchoMemoryProvider()
+
+        mock_cfg = MagicMock()
+        mock_cfg.enabled = True
+        mock_cfg.api_key = "test-key"
+        mock_cfg.base_url = None
+        mock_cfg.peer_name = "static-user"
+        mock_cfg.peer_map = {"telegram:8692383210": "joanne-honcho"}
+        mock_cfg.recall_mode = "context"
+        mock_cfg.context_tokens = None
+        mock_cfg.raw = {}
+        mock_cfg.dialectic_depth = 1
+        mock_cfg.dialectic_depth_levels = None
+        mock_cfg.init_on_session_start = False
+        mock_cfg.ai_peer = "hermes"
+        mock_cfg.resolve_session_name.return_value = "test-sess"
+        mock_cfg.session_strategy = "shared"
+
+        with patch(
+            "plugins.memory.honcho.client.HonchoClientConfig.from_global_config",
+            return_value=mock_cfg,
+        ), patch(
+            "plugins.memory.honcho.client.get_honcho_client",
+            return_value=MagicMock(),
+        ), patch(
+            "plugins.memory.honcho.session.HonchoSessionManager",
+        ) as mock_manager_cls:
+            mock_manager = MagicMock()
+            mock_manager.get_or_create.return_value = MagicMock(messages=[])
+            mock_manager_cls.return_value = mock_manager
+            provider.initialize(
+                session_id="test-sess",
+                user_id="8692383210",
+                platform="telegram",
+            )
+
+        assert mock_cfg.peer_name == "static-user"
+        assert mock_manager_cls.call_args.kwargs["runtime_user_peer_name"] == "joanne-honcho"
+
     def test_session_manager_prefers_runtime_user_id_over_config_peer_name(self):
         """Session manager should isolate gateway users even when config peer_name is static."""
         from plugins.memory.honcho.session import HonchoSessionManager

@@ -226,6 +226,7 @@ class HonchoClientConfig:
     # Identity
     peer_name: str | None = None
     ai_peer: str = "hermes"
+    peer_map: dict[str, str] = field(default_factory=dict)
     # Toggles
     enabled: bool = False
     save_messages: bool = True
@@ -420,6 +421,7 @@ class HonchoClientConfig:
             timeout=timeout,
             peer_name=host_block.get("peerName") or raw.get("peerName"),
             ai_peer=ai_peer,
+            peer_map=host_block.get("peerMap") or raw.get("peerMap") or {},
             enabled=enabled,
             save_messages=save_messages,
             write_frequency=write_frequency,

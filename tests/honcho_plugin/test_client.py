@@ -102,6 +102,7 @@ class TestFromGlobalConfig:
             "environment": "staging",
             "peerName": "alice",
             "aiPeer": "hermes-custom",
+            "peerMap": {"telegram:123": "alice-canonical"},
             "enabled": True,
             "saveMessages": False,
             "contextTokens": 2000,
@@ -125,6 +126,7 @@ class TestFromGlobalConfig:
         assert config.ai_peer == "override-ai"
         assert config.environment == "staging"
         assert config.peer_name == "alice"
+        assert config.peer_map == {"telegram:123": "alice-canonical"}
         assert config.enabled is True
         assert config.save_messages is False
         assert config.session_strategy == "per-project"
@@ -133,13 +135,15 @@ class TestFromGlobalConfig:
     def test_host_block_overrides_root(self, tmp_path):
         config_file = tmp_path / "config.json"
         config_file.write_text(json.dumps({
-            "apiKey": "key",
+            "apiKey": "***",
             "workspace": "root-ws",
             "aiPeer": "root-ai",
+            "peerMap": {"telegram:root": "root-peer"},
             "hosts": {
                 "hermes": {
                     "workspace": "host-ws",
                     "aiPeer": "host-ai",
+                    "peerMap": {"telegram:host": "host-peer"},
                 }
             }
         }))
@@ -147,6 +151,7 @@ class TestFromGlobalConfig:
         config = HonchoClientConfig.from_global_config(config_path=config_file)
         assert config.workspace_id == "host-ws"
         assert config.ai_peer == "host-ai"
+        assert config.peer_map == {"telegram:host": "host-peer"}
 
     def test_root_fields_used_when_no_host_block(self, tmp_path):
         config_file = tmp_path / "config.json"
