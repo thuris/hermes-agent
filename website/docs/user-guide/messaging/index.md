@@ -1,14 +1,38 @@
 ---
 sidebar_position: 1
 title: "Messaging Gateway"
-description: "Chat with Hermes from Telegram, Discord, Slack, WhatsApp, Signal, SMS, Email, Home Assistant, Mattermost, Matrix, DingTalk, or any OpenAI-compatible frontend via the API server — architecture and setup overview"
+description: "Chat with Hermes from Telegram, Discord, Slack, WhatsApp, Signal, SMS, Email, Home Assistant, Mattermost, Matrix, DingTalk, Webhooks, or any OpenAI-compatible frontend via the API server — architecture and setup overview"
 ---
 
 # Messaging Gateway
 
-Chat with Hermes from Telegram, Discord, Slack, WhatsApp, Signal, SMS, Email, Home Assistant, Mattermost, Matrix, DingTalk, or your browser. The gateway is a single background process that connects to all your configured platforms, handles sessions, runs cron jobs, and delivers voice messages.
+Chat with Hermes from Telegram, Discord, Slack, WhatsApp, Signal, SMS, Email, Home Assistant, Mattermost, Matrix, DingTalk, Feishu/Lark, WeCom, Weixin, BlueBubbles (iMessage), QQ, or your browser. The gateway is a single background process that connects to all your configured platforms, handles sessions, runs cron jobs, and delivers voice messages.
 
 For the full voice feature set — including CLI microphone mode, spoken replies in messaging, and Discord voice-channel conversations — see [Voice Mode](/docs/user-guide/features/voice-mode) and [Use Voice Mode with Hermes](/docs/guides/use-voice-mode-with-hermes).
+
+## Platform Comparison
+
+| Platform | Voice | Images | Files | Threads | Reactions | Typing | Streaming |
+|----------|:-----:|:------:|:-----:|:-------:|:---------:|:------:|:---------:|
+| Telegram | ✅ | ✅ | ✅ | ✅ | — | ✅ | ✅ |
+| Discord | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Slack | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| WhatsApp | — | ✅ | ✅ | — | — | ✅ | ✅ |
+| Signal | — | ✅ | ✅ | — | — | ✅ | ✅ |
+| SMS | — | — | — | — | — | — | — |
+| Email | — | ✅ | ✅ | ✅ | — | — | — |
+| Home Assistant | — | — | — | — | — | — | — |
+| Mattermost | ✅ | ✅ | ✅ | ✅ | — | ✅ | ✅ |
+| Matrix | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| DingTalk | — | ✅ | ✅ | — | ✅ | — | ✅ |
+| Feishu/Lark | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| WeCom | ✅ | ✅ | ✅ | — | — | ✅ | ✅ |
+| WeCom Callback | — | — | — | — | — | — | — |
+| Weixin | ✅ | ✅ | ✅ | — | — | ✅ | ✅ |
+| BlueBubbles | — | ✅ | ✅ | — | ✅ | ✅ | — |
+| QQ | ✅ | ✅ | ✅ | — | — | ✅ | — |
+
+**Voice** = TTS audio replies and/or voice message transcription. **Images** = send/receive images. **Files** = send/receive file attachments. **Threads** = threaded conversations. **Reactions** = emoji reactions on messages. **Typing** = typing indicator while processing. **Streaming** = progressive message updates via editing.
 
 ## Architecture
 
@@ -27,7 +51,14 @@ flowchart TB
             mm[Mattermost]
             mx[Matrix]
             dt[DingTalk]
+    fs[Feishu/Lark]
+    wc[WeCom]
+    wcb[WeCom Callback]
+    wx[Weixin]
+    bb[BlueBubbles]
+    qq[QQ]
             api["API Server<br/>(OpenAI-compatible)"]
+            wh[Webhooks]
         end
 
         store["Session store<br/>per chat"]
@@ -46,7 +77,14 @@ flowchart TB
     mm --> store
     mx --> store
     dt --> store
+    fs --> store
+    wc --> store
+    wcb --> store
+    wx --> store
+    bb --> store
+    qq --> store
     api --> store
+    wh --> store
     store --> agent
     cron --> store
 ```
@@ -82,12 +120,13 @@ hermes gateway status --system         # Linux only: inspect the system service 
 |---------|-------------|
 | `/new` or `/reset` | Start a fresh conversation |
 | `/model [provider:model]` | Show or change the model (supports `provider:model` syntax) |
-| `/provider` | Show available providers with auth status |
 | `/personality [name]` | Set a personality |
 | `/retry` | Retry the last message |
 | `/undo` | Remove the last exchange |
 | `/status` | Show session info |
 | `/stop` | Stop the running agent |
+| `/approve` | Approve a pending dangerous command |
+| `/deny` | Reject a pending dangerous command |
 | `/sethome` | Set this chat as the home channel |
 | `/compress` | Manually compress conversation context |
 | `/title [name]` | Set or show the session title |
@@ -144,6 +183,9 @@ EMAIL_ALLOWED_USERS=trusted@example.com,colleague@work.com
 MATTERMOST_ALLOWED_USERS=3uo8dkh1p7g1mfk49ear5fzs5c
 MATRIX_ALLOWED_USERS=@alice:matrix.org
 DINGTALK_ALLOWED_USERS=user-id-1
+FEISHU_ALLOWED_USERS=ou_xxxxxxxx,ou_yyyyyyyy
+WECOM_ALLOWED_USERS=user-id-1,user-id-2
+WECOM_CALLBACK_ALLOWED_USERS=user-id-1,user-id-2
 
 # Or allow
 GATEWAY_ALLOWED_USERS=123456789,987654321
@@ -184,6 +226,7 @@ Control how much tool activity is displayed in `~/.hermes/config.yaml`:
 ```yaml
 display:
   tool_progress: all    # off | new | all | verbose
+  tool_progress_command: false  # set to true to enable /verbose in messaging
 ```
 
 When enabled, the bot sends status messages as it works:
@@ -284,11 +327,26 @@ If you run multiple Hermes installations on the same machine (with different `HE
 ### macOS (launchd)
 
 ```bash
-hermes gateway install
-launchctl start ai.hermes.gateway
-launchctl stop ai.hermes.gateway
-tail -f ~/.hermes/logs/gateway.log
+hermes gateway install               # Install as launchd agent
+hermes gateway start                 # Start the service
+hermes gateway stop                  # Stop the service
+hermes gateway status                # Check status
+tail -f ~/.hermes/logs/gateway.log   # View logs
 ```
+
+The generated plist lives at `~/Library/LaunchAgents/ai.hermes.gateway.plist`. It includes three environment variables:
+
+- **PATH** — your full shell PATH at install time, with the venv `bin/` and `node_modules/.bin` prepended. This ensures user-installed tools (Node.js, ffmpeg, etc.) are available to gateway subprocesses like the WhatsApp bridge.
+- **VIRTUAL_ENV** — points to the Python virtualenv so tools can resolve packages correctly.
+- **HERMES_HOME** — scopes the gateway to your Hermes installation.
+
+:::tip PATH changes after install
+launchd plists are static — if you install new tools (e.g. a new Node.js version via nvm, or ffmpeg via Homebrew) after setting up the gateway, run `hermes gateway install` again to capture the updated PATH. The gateway will detect the stale plist and reload automatically.
+:::
+
+:::info Multiple installations
+Like the Linux systemd service, each `HERMES_HOME` directory gets its own launchd label. The default `~/.hermes` uses `ai.hermes.gateway`; other installations use `ai.hermes.gateway-<suffix>`.
+:::
 
 ## Platform-Specific Toolsets
 
@@ -308,7 +366,14 @@ Each platform has its own toolset:
 | Mattermost | `hermes-mattermost` | Full tools including terminal |
 | Matrix | `hermes-matrix` | Full tools including terminal |
 | DingTalk | `hermes-dingtalk` | Full tools including terminal |
+| Feishu/Lark | `hermes-feishu` | Full tools including terminal |
+| WeCom | `hermes-wecom` | Full tools including terminal |
+| WeCom Callback | `hermes-wecom-callback` | Full tools including terminal |
+| Weixin | `hermes-weixin` | Full tools including terminal |
+| BlueBubbles | `hermes-bluebubbles` | Full tools including terminal |
+| QQBot | `hermes-qqbot` | Full tools including terminal |
 | API Server | `hermes` (default) | Full tools including terminal |
+| Webhooks | `hermes-webhook` | Full tools including terminal |
 
 ## Next Steps
 
@@ -323,4 +388,11 @@ Each platform has its own toolset:
 - [Mattermost Setup](mattermost.md)
 - [Matrix Setup](matrix.md)
 - [DingTalk Setup](dingtalk.md)
+- [Feishu/Lark Setup](feishu.md)
+- [WeCom Setup](wecom.md)
+- [WeCom Callback Setup](wecom-callback.md)
+- [Weixin Setup (WeChat)](weixin.md)
+- [BlueBubbles Setup (iMessage)](bluebubbles.md)
+- [QQBot Setup](qqbot.md)
 - [Open WebUI + API Server](open-webui.md)
+- [Webhooks](webhooks.md)

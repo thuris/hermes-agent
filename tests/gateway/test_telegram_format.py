@@ -28,13 +28,18 @@ def _ensure_telegram_mock():
     mod.constants.ChatType.SUPERGROUP = "supergroup"
     mod.constants.ChatType.CHANNEL = "channel"
     mod.constants.ChatType.PRIVATE = "private"
-    for name in ("telegram", "telegram.ext", "telegram.constants"):
+    for name in ("telegram", "telegram.ext", "telegram.constants", "telegram.request"):
         sys.modules.setdefault(name, mod)
 
 
 _ensure_telegram_mock()
 
-from gateway.platforms.telegram import TelegramAdapter, _escape_mdv2, _strip_mdv2  # noqa: E402
+from gateway.platforms.telegram import (  # noqa: E402
+    TelegramAdapter,
+    _escape_mdv2,
+    _strip_mdv2,
+    _wrap_markdown_tables,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -145,6 +150,31 @@ class TestFormatMessageCodeBlocks:
         assert "block2" in result
         # "text" between blocks should be present
         assert "text" in result
+
+    def test_inline_code_backslashes_escaped(self, adapter):
+        r"""Backslashes in inline code must be escaped for MarkdownV2."""
+        text = r"Check `C:\ProgramData\VMware\` path"
+        result = adapter.format_message(text)
+        assert r"`C:\\ProgramData\\VMware\\`" in result
+
+    def test_fenced_code_block_backslashes_escaped(self, adapter):
+        r"""Backslashes in fenced code blocks must be escaped for MarkdownV2."""
+        text = "```\npath = r'C:\\Users\\test'\n```"
+        result = adapter.format_message(text)
+        assert r"C:\\Users\\test" in result
+
+    def test_fenced_code_block_backticks_escaped(self, adapter):
+        r"""Backticks inside fenced code blocks must be escaped for MarkdownV2."""
+        text = "```\necho `hostname`\n```"
+        result = adapter.format_message(text)
+        assert r"echo \`hostname\`" in result
+
+    def test_inline_code_no_double_escape(self, adapter):
+        r"""Already-escaped backslashes should not be quadruple-escaped."""
+        text = r"Use `\\server\share`"
+        result = adapter.format_message(text)
+        # \\ in input → \\\\ in output (each \ escaped once)
+        assert r"`\\\\server\\share`" in result
 
 
 # =========================================================================
@@ -296,6 +326,116 @@ class TestItalicNewlineBug:
 
 
 # =========================================================================
+# format_message - strikethrough
+# =========================================================================
+
+
+class TestFormatMessageStrikethrough:
+    def test_strikethrough_converted(self, adapter):
+        result = adapter.format_message("This is ~~deleted~~ text")
+        assert "~deleted~" in result
+        assert "~~" not in result
+
+    def test_strikethrough_with_special_chars(self, adapter):
+        result = adapter.format_message("~~hello.world!~~")
+        assert "~hello\\.world\\!~" in result
+
+    def test_strikethrough_in_code_not_converted(self, adapter):
+        result = adapter.format_message("`~~not struck~~`")
+        assert "`~~not struck~~`" in result
+
+    def test_strikethrough_with_bold(self, adapter):
+        result = adapter.format_message("**bold** and ~~struck~~")
+        assert "*bold*" in result
+        assert "~struck~" in result
+
+
+# =========================================================================
+# format_message - spoiler
+# =========================================================================
+
+
+class TestFormatMessageSpoiler:
+    def test_spoiler_converted(self, adapter):
+        result = adapter.format_message("This is ||hidden|| text")
+        assert "||hidden||" in result
+
+    def test_spoiler_with_special_chars(self, adapter):
+        result = adapter.format_message("||hello.world!||")
+        assert "||hello\\.world\\!||" in result
+
+    def test_spoiler_in_code_not_converted(self, adapter):
+        result = adapter.format_message("`||not spoiler||`")
+        assert "`||not spoiler||`" in result
+
+    def test_spoiler_pipes_not_escaped(self, adapter):
+        """The || delimiters must not be escaped as \\|\\|."""
+        result = adapter.format_message("||secret||")
+        assert "\\|\\|" not in result
+        assert "||secret||" in result
+
+
+# =========================================================================
+# format_message - blockquote
+# =========================================================================
+
+
+class TestFormatMessageBlockquote:
+    def test_blockquote_converted(self, adapter):
+        result = adapter.format_message("> This is a quote")
+        assert "> This is a quote" in result
+        # > must NOT be escaped
+        assert "\\>" not in result
+
+    def test_blockquote_with_special_chars(self, adapter):
+        result = adapter.format_message("> Hello (world)!")
+        assert "> Hello \\(world\\)\\!" in result
+        assert "\\>" not in result
+
+    def test_blockquote_multiline(self, adapter):
+        text = "> Line one\n> Line two"
+        result = adapter.format_message(text)
+        assert "> Line one" in result
+        assert "> Line two" in result
+        assert "\\>" not in result
+
+    def test_blockquote_in_code_not_converted(self, adapter):
+        result = adapter.format_message("```\n> not a quote\n```")
+        assert "> not a quote" in result
+
+    def test_nested_blockquote(self, adapter):
+        result = adapter.format_message(">> Nested quote")
+        assert ">> Nested quote" in result
+        assert "\\>" not in result
+
+    def test_gt_in_middle_of_line_still_escaped(self, adapter):
+        """Only > at line start is a blockquote; mid-line > should be escaped."""
+        result = adapter.format_message("5 > 3")
+        assert "\\>" in result
+
+    def test_expandable_blockquote(self, adapter):
+        """Expandable blockquote prefix **> and trailing || must NOT be escaped."""
+        result = adapter.format_message("**> Hidden content||")
+        assert "**>" in result
+        assert "||" in result
+        assert "\\*" not in result  # asterisks in prefix must not be escaped
+        assert "\\>" not in result  # > in prefix must not be escaped
+
+    def test_single_asterisk_gt_not_blockquote(self, adapter):
+        """Single asterisk before > should not be treated as blockquote prefix."""
+        result = adapter.format_message("*> not a quote")
+        assert "\\*" in result
+        assert "\\>" in result
+
+    def test_regular_blockquote_with_pipes_escaped(self, adapter):
+        """Regular blockquote ending with || should escape the pipes."""
+        result = adapter.format_message("> not expandable||")
+        assert "> not expandable" in result
+        assert "\\|" in result
+        assert "\\>" not in result
+
+
+# =========================================================================
 # format_message - mixed/complex
 # =========================================================================
 
@@ -392,6 +532,158 @@ class TestStripMdv2:
 
     def test_empty_string(self):
         assert _strip_mdv2("") == ""
+
+    def test_removes_strikethrough_markers(self):
+        assert _strip_mdv2("~struck text~") == "struck text"
+
+    def test_removes_spoiler_markers(self):
+        assert _strip_mdv2("||hidden text||") == "hidden text"
+
+
+# =========================================================================
+# Markdown table auto-wrap
+# =========================================================================
+
+
+class TestWrapMarkdownTables:
+    """_wrap_markdown_tables wraps GFM pipe tables in ``` fences so
+    Telegram renders them as monospace preformatted text instead of the
+    noisy backslash-pipe mess MarkdownV2 produces."""
+
+    def test_basic_table_wrapped(self):
+        text = (
+            "Scores:\n\n"
+            "| Player | Score |\n"
+            "|--------|-------|\n"
+            "| Alice  | 150   |\n"
+            "| Bob    | 120   |\n"
+            "\nEnd."
+        )
+        out = _wrap_markdown_tables(text)
+        # Table is now wrapped in a fence
+        assert "```\n| Player | Score |" in out
+        assert "| Bob    | 120   |\n```" in out
+        # Surrounding prose is preserved
+        assert out.startswith("Scores:")
+        assert out.endswith("End.")
+
+    def test_bare_pipe_table_wrapped(self):
+        """Tables without outer pipes (GFM allows this) are still detected."""
+        text = "head1 | head2\n--- | ---\na | b\nc | d"
+        out = _wrap_markdown_tables(text)
+        assert out.startswith("```\n")
+        assert out.rstrip().endswith("```")
+        assert "head1 | head2" in out
+
+    def test_alignment_separators(self):
+        """Separator rows with :--- / ---: / :---: alignment markers match."""
+        text = (
+            "| Name | Age | City |\n"
+            "|:-----|----:|:----:|\n"
+            "| Ada  |  30 | NYC  |"
+        )
+        out = _wrap_markdown_tables(text)
+        assert out.count("```") == 2
+
+    def test_two_consecutive_tables_wrapped_separately(self):
+        text = (
+            "| A | B |\n"
+            "|---|---|\n"
+            "| 1 | 2 |\n"
+            "\n"
+            "| X | Y |\n"
+            "|---|---|\n"
+            "| 9 | 8 |"
+        )
+        out = _wrap_markdown_tables(text)
+        # Four fences total — one opening + closing per table
+        assert out.count("```") == 4
+
+    def test_plain_text_with_pipes_not_wrapped(self):
+        """A bare pipe in prose must NOT trigger wrapping."""
+        text = "Use the | pipe operator to chain commands."
+        assert _wrap_markdown_tables(text) == text
+
+    def test_horizontal_rule_not_wrapped(self):
+        """A lone '---' horizontal rule must not be mistaken for a separator."""
+        text = "Section A\n\n---\n\nSection B"
+        assert _wrap_markdown_tables(text) == text
+
+    def test_existing_code_block_with_pipes_left_alone(self):
+        """A table already inside a fenced code block must not be re-wrapped."""
+        text = (
+            "```\n"
+            "| a | b |\n"
+            "|---|---|\n"
+            "| 1 | 2 |\n"
+            "```"
+        )
+        assert _wrap_markdown_tables(text) == text
+
+    def test_no_pipe_character_short_circuits(self):
+        text = "Plain **bold** text with no table."
+        assert _wrap_markdown_tables(text) == text
+
+    def test_no_dash_short_circuits(self):
+        text = "a | b\nc | d"  # has pipes but no '-' separator row
+        assert _wrap_markdown_tables(text) == text
+
+    def test_single_column_separator_not_matched(self):
+        """Single-column tables (rare) are not detected — we require at
+        least one internal pipe in the separator row to avoid false
+        positives on formatting rules."""
+        text = "| a |\n| - |\n| b |"
+        assert _wrap_markdown_tables(text) == text
+
+
+class TestFormatMessageTables:
+    """End-to-end: a pipe table passes through format_message with its
+    pipes and dashes left alone inside the fence, not mangled by MarkdownV2
+    escaping."""
+
+    def test_table_rendered_as_code_block(self, adapter):
+        text = (
+            "Data:\n\n"
+            "| Col1 | Col2 |\n"
+            "|------|------|\n"
+            "| A    | B    |\n"
+        )
+        out = adapter.format_message(text)
+        # Pipes inside the fenced block are NOT escaped
+        assert "```\n| Col1 | Col2 |" in out
+        assert "\\|" not in out.split("```")[1]
+        # Dashes in separator not escaped inside fence
+        assert "\\-" not in out.split("```")[1]
+
+    def test_text_after_table_still_formatted(self, adapter):
+        text = (
+            "| A | B |\n"
+            "|---|---|\n"
+            "| 1 | 2 |\n"
+            "\n"
+            "Nice **work** team!"
+        )
+        out = adapter.format_message(text)
+        # MarkdownV2 bold conversion still happens outside the table
+        assert "*work*" in out
+        # Exclamation outside fence is escaped
+        assert "\\!" in out
+
+    def test_multiple_tables_in_single_message(self, adapter):
+        text = (
+            "First:\n"
+            "| A | B |\n"
+            "|---|---|\n"
+            "| 1 | 2 |\n"
+            "\n"
+            "Second:\n"
+            "| X | Y |\n"
+            "|---|---|\n"
+            "| 9 | 8 |\n"
+        )
+        out = adapter.format_message(text)
+        # Two separate fenced blocks in the output
+        assert out.count("```") == 4
 
 
 @pytest.mark.asyncio
